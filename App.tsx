@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Users, 
   CalendarDays, 
@@ -22,6 +22,7 @@ import InvigilatorCard from './components/InvigilatorCard';
 import InfoModal from './components/InfoModal';
 import EditEntryModal from './components/EditEntryModal';
 import RecapModal from './components/RecapModal';
+import Toast from './components/Toast';
 
 // Default to the first day of exams
 const DEFAULT_DATE = '2025-12-01';
@@ -67,10 +68,20 @@ const App: React.FC = () => {
   const [editingEntry, setEditingEntry] = useState<ScheduleEntry | null>(null); // Null means Add mode
   const [generatedInfoText, setGeneratedInfoText] = useState('');
 
+  // Toast State
+  const [showToast, setShowToast] = useState(false);
+  const isFirstRender = useRef(true);
+
   // Persist Data Effects
   useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    
     localStorage.setItem(ATTENDANCE_STORAGE_KEY, JSON.stringify(attendance));
     setIsSaved(true);
+    setShowToast(true); // Show toast when attendance saves
   }, [attendance]);
 
   useEffect(() => {
@@ -362,6 +373,12 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-12 bg-gray-50 font-sans">
+      <Toast 
+        message="Data kehadiran telah berhasil disimpan di penyimpanan lokal." 
+        isVisible={showToast} 
+        onClose={() => setShowToast(false)} 
+      />
+
       <InfoModal 
         isOpen={showInfoModal} 
         onClose={() => setShowInfoModal(false)} 
