@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sistem Absensi TMMIA</title>
-    <!-- Tailwind CSS via CDN is fine for simple deployment, though npm install is better for prod -->
+    <!-- Tailwind CSS via CDN is fine for simple deployment -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -25,11 +25,10 @@
   }
 }
 </script>
-<link rel="stylesheet" href="/index.css">
 </head>
   <body>
     <div id="root"></div>
-    <!-- Pointing directly to the Typescript entry file for Vite to handle -->
-    <script type="module" src="/index.tsx"></script>
+    <!-- Menggunakan relative path ./ agar Vite dapat memprosesnya dengan benar saat build -->
+    <script type="module" src="./index.tsx"></script>
   </body>
 </html>
