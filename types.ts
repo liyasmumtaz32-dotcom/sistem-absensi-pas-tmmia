@@ -18,7 +18,17 @@ export interface AttendanceRecord {
     status: AttendanceStatus;
     timestamp: number;
     notes?: string;
+    updatedBy?: string; // Mengetahui siapa yang mengubah
   };
+}
+
+export interface LogEntry {
+  id: string;
+  timestamp: number;
+  user: string;
+  action: string;
+  targetId?: string;
+  details: string;
 }
 
 export interface FilterState {

@@ -1,17 +1,18 @@
 
 import React from 'react';
 import { ScheduleEntry, AttendanceStatus } from '../types';
-import { CheckCircle, XCircle, Clock, AlertCircle, User, Pencil, Trash2 } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, AlertCircle, User, Pencil, Trash2, History } from 'lucide-react';
 
 interface Props {
   entry: ScheduleEntry;
   status: AttendanceStatus;
+  updatedBy?: string; // Add this prop
   onUpdateStatus: (id: string, status: AttendanceStatus) => void;
   onEdit: (entry: ScheduleEntry) => void;
   onDelete: (id: string) => void;
 }
 
-const InvigilatorCard: React.FC<Props> = ({ entry, status, onUpdateStatus, onEdit, onDelete }) => {
+const InvigilatorCard: React.FC<Props> = ({ entry, status, updatedBy, onUpdateStatus, onEdit, onDelete }) => {
   const isPresent = status === 'HADIR';
   
   return (
@@ -48,7 +49,7 @@ const InvigilatorCard: React.FC<Props> = ({ entry, status, onUpdateStatus, onEdi
           <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
             Ruang {entry.room}
           </span>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-700 bg-gray-200 px-2 py-0.5 rounded font-bold">
             Sesi {entry.session}
           </span>
         </div>
@@ -56,8 +57,14 @@ const InvigilatorCard: React.FC<Props> = ({ entry, status, onUpdateStatus, onEdi
           <User size={18} className="mr-2 text-gray-400" />
           {entry.invigilatorName}
         </h4>
-        <div className="text-sm text-gray-500 mt-1 flex items-center space-x-4">
+        <div className="text-sm text-gray-500 mt-1 flex flex-col md:flex-row md:items-center md:space-x-4">
            <span>{entry.date}</span>
+           {updatedBy && (
+             <div className="flex items-center text-xs text-gray-400 mt-1 md:mt-0">
+               <History size={12} className="mr-1" />
+               Updated by: {updatedBy}
+             </div>
+           )}
         </div>
       </div>
 

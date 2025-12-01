@@ -1,7 +1,10 @@
+
 import { ScheduleEntry, Level, Session } from './types';
 
 // Helper to create IDs
-const mkId = (room: string, date: string, session: string) => `${room}-${date.replace(/\s/g, '')}-${session}`;
+// FIXED: ID now includes sanitized name to prevent collision if multiple people are in the same room/session
+const mkId = (room: string, date: string, session: string, name: string) => 
+  `${room}-${date.replace(/\s/g, '')}-${session}-${name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}`;
 
 // Dates mapped from the PDF headers
 export const EXAM_DATES = [
@@ -109,7 +112,7 @@ const RAW_SCHEDULE_DATA: ScheduleEntry[] = ([
   { room: '31', level: 'SMP', day: '2025-12-01', date: 'Senin, 1 Des', session: 'II', invigilatorName: 'MUHAMMAD YADZKI' },
 ] as const).map(item => ({
   ...item,
-  id: mkId(item.room, item.day, item.session)
+  id: mkId(item.room, item.day, item.session, item.invigilatorName)
 }));
 
 const GENERATED_DATA: ScheduleEntry[] = [];
@@ -131,15 +134,16 @@ const fillSchedule = (roomList: string[], level: Level, nameList: string[]) => {
           // Simple rotation algorithm to pick names
           // Shift start index by room and day to distribute names
           const idx = (parseInt(room) * 2 + dIdx * 5 + sIdx + nameIndex) % nameList.length;
+          const invigilatorName = nameList[idx];
           
           GENERATED_DATA.push({
-            id: mkId(room, dateObj.value, sess),
+            id: mkId(room, dateObj.value, sess, invigilatorName),
             room,
             level,
             day: dateObj.value,
             date: dateObj.label.split(',')[0] + ', ' + dateObj.label.split(' ')[1] + ' Des',
             session: sess as Session,
-            invigilatorName: nameList[idx]
+            invigilatorName: invigilatorName
           });
         }
       });

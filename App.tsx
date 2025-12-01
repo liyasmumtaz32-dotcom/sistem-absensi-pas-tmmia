@@ -13,23 +13,33 @@ import {
   Database,
   FileText,
   Plus,
-  Trophy
+  Trophy,
+  LogOut
 } from 'lucide-react';
 import { FULL_SCHEDULE, EXAM_DATES } from './constants';
-import { AttendanceRecord, AttendanceStatus, FilterState, ScheduleEntry } from './types';
+import { AttendanceRecord, AttendanceStatus, FilterState, ScheduleEntry, LogEntry } from './types';
 import StatCard from './components/StatCard';
 import InvigilatorCard from './components/InvigilatorCard';
 import InfoModal from './components/InfoModal';
 import EditEntryModal from './components/EditEntryModal';
 import RecapModal from './components/RecapModal';
+import ActivityLogModal from './components/ActivityLogModal';
+import LoginModal from './components/LoginModal';
 import Toast from './components/Toast';
 
 // Default to the first day of exams
 const DEFAULT_DATE = '2025-12-01';
-const ATTENDANCE_STORAGE_KEY = 'tmmia_attendance_db_v1';
-const SCHEDULE_STORAGE_KEY = 'tmmia_schedule_db_v1';
+const ATTENDANCE_STORAGE_KEY = 'tmmia_attendance_db_v2';
+const SCHEDULE_STORAGE_KEY = 'tmmia_schedule_db_v2';
+const LOGS_STORAGE_KEY = 'tmmia_logs_db_v1';
+const USER_SESSION_KEY = 'tmmia_current_user';
 
 const App: React.FC = () => {
+  // 0. User Session State
+  const [currentUser, setCurrentUser] = useState<string | null>(() => {
+    return sessionStorage.getItem(USER_SESSION_KEY);
+  });
+
   // 1. Initialize Schedule (Load from DB or fallback to constants)
   const [schedule, setSchedule] = useState<ScheduleEntry[]>(() => {
     try {
@@ -52,6 +62,16 @@ const App: React.FC = () => {
     }
   });
 
+  // 3. Initialize Logs
+  const [logs, setLogs] = useState<LogEntry[]>(() => {
+    try {
+      const savedLogs = localStorage.getItem(LOGS_STORAGE_KEY);
+      return savedLogs ? JSON.parse(savedLogs) : [];
+    } catch (error) {
+      return [];
+    }
+  });
+
   const [filters, setFilters] = useState<FilterState>({
     search: '',
     level: 'ALL',
@@ -65,12 +85,30 @@ const App: React.FC = () => {
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [showRecapModal, setShowRecapModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showLogModal, setShowLogModal] = useState(false);
+  
   const [editingEntry, setEditingEntry] = useState<ScheduleEntry | null>(null); // Null means Add mode
   const [generatedInfoText, setGeneratedInfoText] = useState('');
 
   // Toast State
   const [showToast, setShowToast] = useState(false);
   const isFirstRender = useRef(true);
+
+  // Helper to add log
+  const addLog = (action: string, details: string, targetId?: string) => {
+    if (!currentUser) return;
+    
+    const newLog: LogEntry = {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      timestamp: Date.now(),
+      user: currentUser,
+      action,
+      details,
+      targetId
+    };
+
+    setLogs(prev => [newLog, ...prev]);
+  };
 
   // Persist Data Effects
   useEffect(() => {
@@ -80,13 +118,26 @@ const App: React.FC = () => {
     }
     
     localStorage.setItem(ATTENDANCE_STORAGE_KEY, JSON.stringify(attendance));
-    setIsSaved(true);
-    setShowToast(true); // Show toast when attendance saves
-  }, [attendance]);
-
-  useEffect(() => {
+    localStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(logs));
     localStorage.setItem(SCHEDULE_STORAGE_KEY, JSON.stringify(schedule));
-  }, [schedule]);
+    
+    setIsSaved(true);
+  }, [attendance, logs, schedule]);
+
+  // Auth Handler
+  const handleLogin = (name: string) => {
+    setCurrentUser(name);
+    sessionStorage.setItem(USER_SESSION_KEY, name);
+    // Add welcome log only if logs are empty (first time) or simple session log
+    // We won't log every login to save space, but we could.
+  };
+
+  const handleLogout = () => {
+    if (window.confirm('Apakah Anda yakin ingin keluar?')) {
+      setCurrentUser(null);
+      sessionStorage.removeItem(USER_SESSION_KEY);
+    }
+  };
 
   // CRUD Handlers
   const handleAddEntry = () => {
@@ -104,43 +155,67 @@ const App: React.FC = () => {
       if (editingEntry) {
         // Edit Mode
         const isNameChanged = editingEntry.invigilatorName !== newEntry.invigilatorName;
-        
-        // If critical info changes that affects ID (room/day/session)
-        // We actually create a new entry in UI logic, but let's handle the ID change.
-        // If ID matches, just update content.
-        
         const updated = prev.map(item => item.id === editingEntry.id ? newEntry : item);
         
-        // If name changed, RESET attendance status for this slot
+        addLog(
+          'Edit Jadwal', 
+          `Mengubah jadwal Ruang ${editingEntry.room} (${editingEntry.level}). ${isNameChanged ? `Pengawas: ${editingEntry.invigilatorName} -> ${newEntry.invigilatorName}` : ''}`,
+          newEntry.id
+        );
+
         if (isNameChanged) {
           setAttendance(prevAtt => ({
             ...prevAtt,
-            [newEntry.id]: { status: 'PENDING', timestamp: Date.now() } // Reset to Pending
+            [newEntry.id]: { 
+              status: 'PENDING', 
+              timestamp: Date.now(),
+              updatedBy: currentUser || 'System'
+            }
           }));
         }
         
         return updated;
       } else {
         // Add Mode
+        addLog('Tambah Jadwal', `Menambahkan jadwal baru untuk ${newEntry.invigilatorName} di Ruang ${newEntry.room}`, newEntry.id);
         return [...prev, newEntry];
       }
     });
+    setShowToast(true);
   };
 
   const handleDeleteEntry = (id: string) => {
+    const entry = schedule.find(s => s.id === id);
+    if (entry) {
+        addLog('Hapus Jadwal', `Menghapus jadwal ${entry.invigilatorName} di Ruang ${entry.room}`, id);
+    }
     setSchedule(prev => prev.filter(item => item.id !== id));
-    // Optionally remove attendance record too, but keeping it orphan is fine for logs
+    setShowToast(true);
   };
 
   const handleStatusUpdate = (id: string, status: AttendanceStatus) => {
     setIsSaved(false); 
+    const entry = schedule.find(s => s.id === id);
+    const oldStatus = attendance[id]?.status || 'PENDING';
+    
+    if (oldStatus !== status) {
+        addLog(
+            'Ubah Status Absensi', 
+            `Mengubah status ${entry?.invigilatorName || id} (Sesi ${entry?.session}) dari ${oldStatus} menjadi ${status}`,
+            id
+        );
+    }
+
     setAttendance(prev => ({
       ...prev,
       [id]: {
         status,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        updatedBy: currentUser || 'Anonymous'
       }
     }));
+    // Toast trigger handled by effect, but let's be explicit
+    setTimeout(() => setShowToast(true), 500);
   };
 
   // Filter Logic
@@ -245,6 +320,7 @@ const App: React.FC = () => {
       const record = attendance[entry.id];
       const status = record?.status || 'PENDING';
       const time = record?.timestamp ? new Date(record.timestamp).toLocaleString('id-ID') : '-';
+      const updater = record?.updatedBy || '-';
       
       exportStats.total++;
       if (status === 'HADIR') exportStats.hadir++;
@@ -271,45 +347,44 @@ const App: React.FC = () => {
           <td>${entry.invigilatorName}</td>
           <td style="${statusStyle}">${status}</td>
           <td style="mso-number-format:'\@';">${time}</td>
+          <td>${updater}</td>
         </tr>
       `;
     });
 
+    // Add Logs Table for Excel
+    let logRows = '';
+    logs.slice(0, 500).forEach(log => { // Limit to last 500 for excel size
+        logRows += `
+            <tr>
+                <td>${new Date(log.timestamp).toLocaleString('id-ID')}</td>
+                <td>${log.user}</td>
+                <td>${log.action}</td>
+                <td>${log.details}</td>
+            </tr>
+        `;
+    });
+
     const summaryTable = `
-      <tr><td colspan="9" style="border: none; height: 20px;"></td></tr>
+      <tr><td colspan="10" style="border: none; height: 20px;"></td></tr>
       <tr>
         <td colspan="3" style="border: 1px solid #000; background-color: #047857; color: white; font-weight: bold;">REKAPITULASI KEHADIRAN</td>
-        <td colspan="6" style="border: none;"></td>
+        <td colspan="7" style="border: none;"></td>
       </tr>
       <tr>
         <td colspan="2" style="border: 1px solid #000; font-weight: bold;">Total Pengawas</td>
         <td style="border: 1px solid #000; text-align: center; font-weight: bold;">${exportStats.total}</td>
-        <td colspan="6" style="border: none;"></td>
+        <td colspan="7" style="border: none;"></td>
       </tr>
       <tr>
         <td colspan="2" style="border: 1px solid #000;">Hadir</td>
         <td style="border: 1px solid #000; text-align: center; background-color: #d1fae5;">${exportStats.hadir}</td>
-        <td colspan="6" style="border: none;"></td>
-      </tr>
-      <tr>
-        <td colspan="2" style="border: 1px solid #000;">Izin</td>
-        <td style="border: 1px solid #000; text-align: center; background-color: #fef9c3;">${exportStats.izin}</td>
-        <td colspan="6" style="border: none;"></td>
-      </tr>
-      <tr>
-        <td colspan="2" style="border: 1px solid #000;">Sakit</td>
-        <td style="border: 1px solid #000; text-align: center; background-color: #dbeafe;">${exportStats.sakit}</td>
-        <td colspan="6" style="border: none;"></td>
-      </tr>
-      <tr>
-        <td colspan="2" style="border: 1px solid #000;">Alpha</td>
-        <td style="border: 1px solid #000; text-align: center; background-color: #fee2e2;">${exportStats.alpha}</td>
-        <td colspan="6" style="border: none;"></td>
+        <td colspan="7" style="border: none;"></td>
       </tr>
       <tr>
         <td colspan="2" style="border: 1px solid #000;">Belum Absen</td>
         <td style="border: 1px solid #000; text-align: center; background-color: #f3f4f6;">${exportStats.pending}</td>
-        <td colspan="6" style="border: none;"></td>
+        <td colspan="7" style="border: none;"></td>
       </tr>
     `;
 
@@ -330,32 +405,50 @@ const App: React.FC = () => {
         <table>
           <thead>
             <tr>
-              <td colspan="9" class="header-title" style="border: none;">Laporan Absensi Pengawas Ujian TMMIA</td>
+              <td colspan="10" class="header-title" style="border: none;">Laporan Absensi Pengawas Ujian TMMIA</td>
             </tr>
             <tr>
-              <td colspan="9" class="header-info" style="border: none;">
-                Tanggal Filter: ${EXAM_DATES.find(d => d.value === filters.day)?.label || filters.day} | 
-                Level: ${filters.level === 'ALL' ? 'Semua' : filters.level} |
-                Dicetak: ${new Date().toLocaleString('id-ID')}
+              <td colspan="10" class="header-info" style="border: none;">
+                Dicetak Oleh: ${currentUser} | Tanggal: ${new Date().toLocaleString('id-ID')}
               </td>
             </tr>
-            <tr><td colspan="9" style="border: none; height: 10px;"></td></tr>
+            <tr><td colspan="10" style="border: none; height: 10px;"></td></tr>
             <tr>
               <th style="width: 40px;">No</th>
-              <th style="width: 80px;">Ruang</th>
-              <th style="width: 80px;">Level</th>
+              <th style="width: 60px;">Ruang</th>
+              <th style="width: 60px;">Level</th>
               <th style="width: 100px;">Hari</th>
               <th style="width: 150px;">Tanggal</th>
               <th style="width: 60px;">Sesi</th>
               <th style="width: 250px;">Nama Pengawas</th>
               <th style="width: 100px;">Status</th>
               <th style="width: 150px;">Waktu Absen</th>
+              <th style="width: 150px;">Diupdate Oleh</th>
             </tr>
           </thead>
           <tbody>
             ${rows}
             ${summaryTable}
           </tbody>
+        </table>
+
+        <br/><br/>
+        
+        <table>
+            <thead>
+                <tr>
+                    <td colspan="4" class="header-title" style="background-color: #e2e8f0; color: #333;">AUDIT LOG AKTIVITAS (Database Record)</td>
+                </tr>
+                <tr>
+                    <th style="background-color: #475569;">Waktu</th>
+                    <th style="background-color: #475569;">User</th>
+                    <th style="background-color: #475569;">Aksi</th>
+                    <th style="background-color: #475569;">Detail</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${logRows}
+            </tbody>
         </table>
       </body>
       </html>
@@ -365,16 +458,19 @@ const App: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Laporan_Absensi_TMMIA_${filters.day}_${filters.level}.xls`;
+    link.download = `Laporan_Absensi_TMMIA_${filters.day}_${currentUser}.xls`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    addLog('Export Excel', 'Mengunduh laporan absensi ke Excel', '');
   };
 
   return (
     <div className="min-h-screen pb-12 bg-gray-50 font-sans">
+      {!currentUser && <LoginModal onLogin={handleLogin} />}
+      
       <Toast 
-        message="Data kehadiran telah berhasil disimpan di penyimpanan lokal." 
+        message="Data kehadiran & Log Database berhasil disimpan." 
         isVisible={showToast} 
         onClose={() => setShowToast(false)} 
       />
@@ -399,6 +495,12 @@ const App: React.FC = () => {
         attendance={attendance}
       />
 
+      <ActivityLogModal
+        isOpen={showLogModal}
+        onClose={() => setShowLogModal(false)}
+        logs={logs}
+      />
+
       {/* Header */}
       <header className="bg-emerald-800 text-white shadow-lg sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-4 py-4">
@@ -414,18 +516,19 @@ const App: React.FC = () => {
             </div>
             
             <div className="flex items-center gap-3">
+              <div className="flex items-center space-x-2 text-xs px-3 py-1.5 rounded-full bg-emerald-900/50 text-emerald-100 border border-emerald-700">
+                <Users size={14} />
+                <span>Halo, <strong>{currentUser || 'Tamu'}</strong></span>
+                {currentUser && (
+                    <button onClick={handleLogout} className="ml-2 p-1 hover:bg-red-500 rounded-full transition-colors" title="Keluar">
+                        <LogOut size={10} />
+                    </button>
+                )}
+              </div>
+
               <div className={`flex items-center space-x-2 text-xs px-3 py-1.5 rounded-full transition-colors ${isSaved ? 'bg-emerald-900/50 text-emerald-200' : 'bg-yellow-600 text-white'}`}>
                 <Database size={14} />
                 <span>{isSaved ? 'Tersimpan' : 'Menyimpan...'}</span>
-              </div>
-
-              <div className="hidden md:flex items-center space-x-4 text-sm bg-emerald-700/50 px-4 py-2 rounded-lg backdrop-blur-sm border border-emerald-600/30">
-                <div className="flex items-center">
-                  <CalendarDays size={16} className="mr-2 text-emerald-200" />
-                  <span className="font-medium">
-                    {EXAM_DATES.find(d => d.value === filters.day)?.label.split(',')[0] || filters.day}
-                  </span>
-                </div>
               </div>
             </div>
           </div>
@@ -491,25 +594,19 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap gap-2 w-full xl:w-auto justify-end">
-            <div className="relative flex-grow md:flex-grow-0 min-w-[200px]">
-              <input 
-                type="text" 
-                placeholder="Cari..." 
-                className="pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 w-full text-sm"
-                value={filters.search}
-                onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-              />
-              <Search size={16} className="absolute left-3 top-3 text-gray-400" />
-            </div>
+            <button onClick={() => setShowLogModal(true)} className="btn-icon bg-slate-700 text-white hover:bg-slate-800 px-3 py-2.5 rounded-lg flex items-center shadow-sm" title="Lihat Database Log">
+              <Database size={18} />
+              <span className="ml-2 hidden lg:inline">Database</span>
+            </button>
 
-            <button onClick={handleAddEntry} className="btn-icon bg-emerald-600 text-white hover:bg-emerald-700 px-3 py-2.5 rounded-lg flex items-center" title="Tambah Jadwal">
+            <button onClick={handleAddEntry} className="btn-icon bg-emerald-600 text-white hover:bg-emerald-700 px-3 py-2.5 rounded-lg flex items-center shadow-sm" title="Tambah Jadwal">
               <Plus size={18} />
               <span className="ml-2 hidden lg:inline">Tambah</span>
             </button>
 
             <button onClick={() => setShowRecapModal(true)} className="btn-icon bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 px-3 py-2.5 rounded-lg flex items-center" title="Rekap Honor">
               <Trophy size={18} />
-              <span className="ml-2 hidden lg:inline">Rekap Honor</span>
+              <span className="ml-2 hidden lg:inline">Honor</span>
             </button>
 
             <button onClick={generateInfo} className="btn-icon bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 px-3 py-2.5 rounded-lg flex items-center" title="Salin Info WA">
@@ -540,6 +637,7 @@ const App: React.FC = () => {
                 key={entry.id} 
                 entry={entry} 
                 status={attendance[entry.id]?.status || 'PENDING'} 
+                updatedBy={attendance[entry.id]?.updatedBy}
                 onUpdateStatus={handleStatusUpdate}
                 onEdit={handleEditEntry}
                 onDelete={handleDeleteEntry}

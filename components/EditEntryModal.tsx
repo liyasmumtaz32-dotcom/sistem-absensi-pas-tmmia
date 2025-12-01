@@ -45,11 +45,17 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, onClose, onSave
     const dateObj = EXAM_DATES.find(d => d.value === formData.day);
     const shortDate = dateObj ? dateObj.label.split(',')[0] + ', ' + dateObj.label.split(' ')[1] + ' Des' : formData.day || '';
 
-    // Construct ID
-    const newId = `${formData.room}-${formData.day?.replace(/\s/g, '')}-${formData.session}`;
+    // FIX: Collision Detection Logic
+    // If editing, KEEP the original ID to preserve attendance links.
+    // If adding NEW, use Timestamp to ensure absolute uniqueness, avoiding "double ID" glitches.
+    let entryId = initialData?.id;
+    if (!entryId) {
+        // Create a unique ID for new entries
+        entryId = `${formData.room}-${Date.now().toString()}`;
+    }
 
     const entry: ScheduleEntry = {
-      id: newId,
+      id: entryId,
       room: formData.room!,
       level: formData.level as Level,
       day: formData.day!,
@@ -81,7 +87,7 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, onClose, onSave
           {isEdit && (
             <div className="bg-yellow-50 text-yellow-800 text-xs p-3 rounded flex items-start">
               <AlertCircle size={14} className="mt-0.5 mr-2 flex-shrink-0" />
-              <span>Jika Anda mengganti nama pengawas, status kehadiran sebelumnya akan di-reset menjadi PENDING.</span>
+              <span>Jika Anda mengganti nama pengawas, ID jadwal akan tetap sama (histori terjaga).</span>
             </div>
           )}
 
